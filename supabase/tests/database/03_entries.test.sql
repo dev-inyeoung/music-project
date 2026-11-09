@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(29);
 
 select tests.create_user('alice') as alice \gset
 select tests.create_user('bob') as bob \gset
@@ -28,6 +28,20 @@ select is((select count(*)::int from entries where id = :'p_private'), 1, 'owner
 -- test_blocked_cannot_read_by_id
 select tests.as_user(:'dave') \gset
 select is((select count(*)::int from entries where id = :'p_public'), 0, 'test_blocked_cannot_read_by_id');
+
+-- R5 caller guard on entry_visible_to
+select tests.as_service() \gset
+select row_to_json(e)::text as e_friends from entries e where id = :'p_friends' \gset
+select tests.as_user(:'carol') \gset
+select ok(not public.entry_visible_to(json_populate_record(null::entries, :'e_friends'::json), :'bob'),
+  'third party cannot probe entry_visible_to for another viewer');
+select tests.as_user(:'bob') \gset
+select ok(public.entry_visible_to(json_populate_record(null::entries, :'e_friends'::json), :'bob'),
+  'viewer may ask about themselves');
+select tests.as_service() \gset
+select set_config('request.jwt.claims', '', true) \gset
+select ok(public.entry_visible_to(json_populate_record(null::entries, :'e_friends'::json), :'bob'),
+  'service context (no auth.uid) unguarded');
 
 -- anon sees nothing
 select tests.as_service() \gset

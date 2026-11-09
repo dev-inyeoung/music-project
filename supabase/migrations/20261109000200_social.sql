@@ -2,15 +2,19 @@
 
 create function public.is_blocked_between(a uuid, b uuid) returns boolean
 language sql stable security definer set search_path = '' as $$
-  select exists (
-    select 1 from public.blocks
-     where (blocker = a and blocked = b) or (blocker = b and blocked = a)
-  );
+  -- R5: authenticated callers may only ask about themselves (auth.uid() null = service context).
+  select (auth.uid() is null or auth.uid() = a or auth.uid() = b)
+     and exists (
+       select 1 from public.blocks
+        where (blocker = a and blocked = b) or (blocker = b and blocked = a)
+     );
 $$;
 
 create function public.are_friends(a uuid, b uuid) returns boolean
 language sql stable security definer set search_path = '' as $$
-  select a is distinct from b
+  -- R5: authenticated callers may only ask about themselves (auth.uid() null = service context).
+  select (auth.uid() is null or auth.uid() = a or auth.uid() = b)
+     and a is distinct from b
      and exists (
        select 1 from public.friendships f
         where f.user_low = least(a, b) and f.user_high = greatest(a, b)

@@ -1,10 +1,13 @@
 -- Entries: visibility predicate, RLS, and post RPCs.
 
--- Single source of truth for "can viewer see entry e". Depends only on its arguments
--- (never auth.uid()) so other features (e.g. constellation can_open) can reuse it.
+-- Single source of truth for "can viewer see entry e". Decides from its arguments;
+-- auth.uid() is only used as a caller guard (R5) so it can be reused (e.g. constellation can_open).
 create function public.entry_visible_to(e public.entries, viewer uuid) returns boolean
 language sql stable security definer set search_path = '' as $$
-  select viewer is not null and (
+  -- R5: authenticated callers may only ask about themselves (auth.uid() null = service context).
+  select viewer is not null
+     and (auth.uid() is null or viewer = auth.uid())
+     and (
     (e.user_id = viewer and e.status <> 'deleted')
     or (
       e.status = 'active' and e.kind = 'post'

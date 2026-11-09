@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(13);
+select plan(16);
 
 select tests.create_user('alice') as alice \gset
 select tests.create_user('bob') as bob \gset
@@ -31,6 +31,13 @@ select public.send_friend_request('carol');
 select tests.as_user(:'carol');
 select is(public.send_friend_request('alice'), 'accepted'::friendship_status, 'mutual request -> accepted');
 
+-- R5 caller guard: may only ask about yourself
+select tests.as_user(:'bob');
+select ok(not public.are_friends(:'alice', :'carol'), 'third party cannot probe are_friends');
+select tests.as_service();
+select set_config('request.jwt.claims', '', true);
+select ok(public.are_friends(:'alice', :'carol'), 'service context (no auth.uid) sees alice-carol friendship');
+
 -- block
 select tests.as_user(:'alice');
 select public.block_user(:'bob');
@@ -41,6 +48,8 @@ select is((select count(*)::int from profiles where id = :'bob'), 0, 'blocked pr
 select throws_ok($$select public.send_friend_request('bob')$$, 'P0001', 'user_not_found', 'request to blocked user hides existence');
 select tests.as_user(:'bob');
 select is((select count(*)::int from profiles where id = :'alice'), 0, 'blocker profile hidden from blocked');
+select tests.as_user(:'carol');
+select ok(not public.is_blocked_between(:'alice', :'bob'), 'third party cannot probe is_blocked_between');
 
 select * from finish();
 rollback;
