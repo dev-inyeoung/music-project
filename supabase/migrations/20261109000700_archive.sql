@@ -33,8 +33,8 @@ begin
   if auth.uid() is null then
     raise exception 'not_authenticated';
   end if;
-  v_start := date_trunc('month', p_month)::timestamp at time zone p_tz;
-  v_end := (date_trunc('month', p_month) + interval '1 month')::timestamp at time zone p_tz;
+  v_start := date_trunc('month', p_month::timestamp) at time zone p_tz;
+  v_end := (date_trunc('month', p_month::timestamp) + interval '1 month') at time zone p_tz;
   return query
     select e.id, e.kind, s.id, s.title, s.artist, s.artwork_url,
            e.listened_at, e.place_name, e.place_lat, e.place_lng, e.comment,
