@@ -68,7 +68,7 @@ begin
 
   with recursive
   comp as (
-    select t.id, t.dist, e as erow, e.user_id, e.kind, e.source_entry_id,
+    select t.id, t.dist, e as erow, e.user_id, e.kind, e.visibility, e.source_entry_id,
            (e.status <> 'active' or e.user_id is null) as gone,
            coalesce(e.user_id = v_me, false) as is_me,
            (e.user_id is not null and e.user_id <> v_me
@@ -77,11 +77,22 @@ begin
       from unnest(v_ids, v_dist) as t(id, dist)
       join public.entries e on e.id = t.id
   ),
+  -- R10: a gone node (deleted/hidden/no user) stays only if it has a non-gone descendant,
+  -- i.e. it is an ancestor of some non-gone node. Walk up from every non-gone node.
+  live_anc(id) as (
+    select c.source_entry_id from comp c where not c.gone and c.source_entry_id is not null
+    union
+    select c.source_entry_id from comp c join live_anc a on a.id = c.id
+     where c.source_entry_id is not null
+  ),
+  pruned as (
+    select c.* from comp c where not c.gone or c.id in (select id from live_anc)
+  ),
   -- Blocked people's nodes: keep (anonymous) only when they have a child in the component.
   incl as (
-    select c.* from comp c
+    select c.* from pruned c
      where not c.blocked
-        or exists (select 1 from comp ch where ch.source_entry_id = c.id)
+        or exists (select 1 from pruned ch where ch.source_entry_id = c.id)
   ),
   incl_edges as (
     select i.source_entry_id as src, i.id as dst
@@ -122,9 +133,11 @@ begin
   sizes as (
     select cl.src as id, count(*)::int as size from closure cl group by cl.src
   ),
+  -- R8: someone else's post switched to private is anonymous (saves stay named).
   labeled as (
     select k.*,
-           (k.gone or k.blocked or not (k.is_me or k.friend)) as anonymous
+           (k.gone or k.blocked or not (k.is_me or k.friend)
+            or (not k.is_me and k.kind = 'post' and k.visibility = 'private')) as anonymous
       from kept k
   )
   select jsonb_build_object(
@@ -140,7 +153,8 @@ begin
                'display_name', case when l.anonymous then null else pr.display_name end,
                'star_color', case when l.anonymous then null else pr.star_color end,
                'size', coalesce(s.size, 0),
-               'can_open', public.entry_visible_to(l.erow, v_me)
+               -- R9: gray (anonymous) stars never open, even if RLS would allow it.
+               'can_open', (l.is_me or not l.anonymous) and public.entry_visible_to(l.erow, v_me)
              ) order by l.dist, l.id)
         from labeled l
         left join sizes s on s.id = l.id

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(38);
 
 select tests.create_user('alice') as alice \gset
 select tests.create_user('bob') as bob \gset
@@ -11,6 +11,7 @@ select tests.make_friends(:'alice', :'bob') \gset
 select tests.make_friends(:'bob', :'carol') \gset
 select tests.song('s1', 'ISRC-C1') as gk \gset
 select tests.song('s2') as gk2 \gset
+select tests.song('s3') as gk3 \gset
 select star_color as bob_color from public.profiles where id = :'bob' \gset
 
 -- Chain built through the RPCs: alice A -> bob B (save, promoted) -> carol C (save, promoted
@@ -67,7 +68,8 @@ select ok(position('ALICE-SECRET-COMMENT-7f3a' in :'g') = 0
 select is((select array_agg((n->>'can_open')::boolean order by array_position(
               array[:'a', :'b', :'c', :'d'], n->>'entry_id'))
              from jsonb_array_elements(:'g'::jsonb->'nodes') n),
-          array[true, true, true, false], 'can_open follows RLS (D is a private save)');
+          array[true, true, false, false],
+  'can_open: named + visible only (C is anonymous non-friend, D is a private save)');
 select is((select n->>'kind' from jsonb_array_elements(:'g'::jsonb->'nodes') n where n->>'entry_id' = :'d'),
   'save', 'D kind is save');
 select is(:'g'::jsonb->'truncated', 'false'::jsonb, 'not truncated');
@@ -98,11 +100,29 @@ select is(jsonb_array_length(:'g'::jsonb->'nodes'), 5, '5 nodes');
 select is((select count(*)::int from jsonb_array_elements(
              public.get_constellation(:'gk', :'e_pub')->'nodes') n where n->>'entry_id' = :'e_pub'),
   1, 'visible focus entry becomes a seed');
+select ok((select (n->>'anonymous')::boolean and not (n->>'can_open')::boolean
+                  and n->'user_id' = 'null'::jsonb
+             from jsonb_array_elements(public.get_constellation(:'gk', :'e_pub')->'nodes') n
+            where n->>'entry_id' = :'e_pub'),
+  'non-friend public post via focus is anonymous and cannot be opened (gray star)');
 select is((select count(*)::int from jsonb_array_elements(
              public.get_constellation(:'gk', :'e_priv')->'nodes') n where n->>'entry_id' = :'e_priv'),
   0, 'invisible focus entry is ignored');
 select is(jsonb_array_length(public.get_constellation(:'gk2', :'e_pub')->'nodes'), 0,
   'focus entry from another song is ignored');
+
+-- B switched to private: anonymous to others, edges kept
+select tests.as_user(:'bob') \gset
+select public.update_entry(:'b', now(), null, null, null, 'bob says hi', 'private') \gset
+select tests.as_user(:'alice') \gset
+select public.get_constellation(:'gk') as g \gset
+select ok((select (n->>'anonymous')::boolean and not (n->>'is_friend')::boolean
+                  and n->'user_id' = 'null'::jsonb and n->'display_name' = 'null'::jsonb
+                  and n->'star_color' = 'null'::jsonb and not (n->>'can_open')::boolean
+                  and not (n->>'gone')::boolean
+             from jsonb_array_elements(:'g'::jsonb->'nodes') n where n->>'entry_id' = :'b'),
+  'post switched to private is anonymous (null user_id/name/color)');
+select is(jsonb_array_length(:'g'::jsonb->'edges'), 3, 'edges kept after switching to private');
 
 -- deleted B: gone + anonymous, edges kept
 select tests.as_user(:'bob') \gset
@@ -133,6 +153,21 @@ select ok(not exists (select 1 from jsonb_array_elements(:'g'::jsonb->'edges') x
   'edge C>D removed with D');
 select is((select (n->>'size')::int from jsonb_array_elements(:'g'::jsonb->'nodes') n
             where n->>'entry_id' = :'a'), 2, 'A size counts included nodes only');
+
+-- deleted leaf save is pruned; save -> delete -> save again shows me once
+select tests.post(:'bob', 's3', 'friends') as p3 \gset
+select tests.as_user(:'alice') \gset
+select id as s3a from public.save_entry(:'p3') \gset
+select public.delete_entry(:'s3a') \gset
+select id as s3b from public.save_entry(:'p3') \gset
+select public.get_constellation(:'gk3') as g3 \gset
+select is((select count(*)::int from jsonb_array_elements(:'g3'::jsonb->'nodes') n
+            where (n->>'is_me')::boolean), 1, 're-save: exactly one is_me node');
+select ok(not exists (select 1 from jsonb_array_elements(:'g3'::jsonb->'nodes') n
+                       where n->>'entry_id' = :'s3a')
+          and not exists (select 1 from jsonb_array_elements(:'g3'::jsonb->'edges') x
+                           where x->>'to' = :'s3a'),
+  'deleted leaf save is pruned with its edge');
 
 -- test_constellation_node_cap: 350 saves of A2 by distinct users
 select tests.as_user(:'alice') \gset

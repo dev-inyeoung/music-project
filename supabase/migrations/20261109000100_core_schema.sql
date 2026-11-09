@@ -18,7 +18,8 @@ create table public.songs (
   isrc text,
   title text not null,
   artist text not null,
-  artwork_url text,
+  -- Only Apple Music artwork CDN URLs (blocks squatting a song with arbitrary images/trackers).
+  artwork_url text check (artwork_url ~ '^https://[a-z0-9.-]+\.mzstatic\.com/'),
   group_key text generated always as (coalesce(isrc, 'am:' || id)) stored
 );
 create index songs_group_key_idx on public.songs (group_key);
@@ -91,6 +92,8 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+
 create function public.set_profile(p_handle text, p_display_name text) returns public.profiles
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -120,6 +123,9 @@ language plpgsql security definer set search_path = '' as $$
 declare
   v_key text;
 begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated';
+  end if;
   insert into public.songs (id, isrc, title, artist, artwork_url)
   values (p_id, p_isrc, p_title, p_artist, p_artwork_url)
   on conflict (id) do update

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(20);
 
 select tests.create_user('alice') as alice \gset
 select tests.create_user('bob') as bob \gset
@@ -33,8 +33,8 @@ select tests.as_service() \gset
 update public.entries set status = 'hidden' where id = :'e_office';
 -- save_entry stamps now(): pin it so no assertion depends on the wall clock
 update public.entries set listened_at = '2026-11-09 03:00+00' where id = :'a_save';
-update public.songs set artwork_url = 'art-s3' where id = 's3';
-update public.songs set artwork_url = 'art-s7' where id = 's7';
+update public.songs set artwork_url = 'https://is1-ssl.mzstatic.com/art-s3.jpg' where id = 's3';
+update public.songs set artwork_url = 'https://is1-ssl.mzstatic.com/art-s7.jpg' where id = 's7';
 
 select tests.as_user(:'alice') \gset
 select ok(exists (select 1 from public.archive_month('2026-11-01') where entry_id = :'e_edge'),
@@ -54,6 +54,15 @@ select is((select array_agg(entry_id) from public.archive_month('2026-11-01')),
   'ordered by listened_at desc; saves included');
 select is((select source_author_name from public.archive_month('2026-11-01') where entry_id = :'a_save'),
   'bob', 'save carries source author name');
+select is((select source_entry_id from public.archive_month('2026-11-01') where entry_id = :'a_save'),
+  :'b_post'::uuid, 'save carries source_entry_id');
+select is((select group_key from public.archive_month('2026-11-01') where entry_id = :'e_home'),
+  :'k3', 'archive item carries group_key');
+select is((select status from public.archive_month('2026-11-01') where entry_id = :'e_office'),
+  'hidden'::public.entry_status, 'archive item carries status (hidden)');
+select is((select group_key || '/' || status || '/' || coalesce(source_entry_id::text, '-')
+             from public.entries_at_place('name:Home') where entry_id = :'e_home'),
+  :'k3' || '/active/-', 'entries_at_place carries group_key, status, source_entry_id');
 
 select is((select count(*)::int from public.my_places()), 3, 'three distinct places');
 select is((select place_name || '/' || entry_count from public.my_places() limit 1), 'Cafe/2',
@@ -62,7 +71,7 @@ select is((select entry_count from public.my_places() where place_name = 'Home')
   'name-only entries group by name; deleted entry not counted');
 select ok((select place_lat is null and place_lng is null from public.my_places() where place_name = 'Home'),
   'name-only group has null coordinates');
-select is((select latest_artwork_url from public.my_places() where place_name = 'Home'), 'art-s3',
+select is((select latest_artwork_url from public.my_places() where place_name = 'Home'), 'https://is1-ssl.mzstatic.com/art-s3.jpg',
   'latest_artwork_url comes from the most recent entry in the group');
 select is((select count(*)::int from public.entries_at_place('name:Home')), 2,
   'entries_at_place for name-only key');

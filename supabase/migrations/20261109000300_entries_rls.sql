@@ -11,6 +11,7 @@ language sql stable security definer set search_path = '' as $$
     (e.user_id = viewer and e.status <> 'deleted')
     or (
       e.status = 'active' and e.kind = 'post'
+      and e.user_id is not null  -- orphaned rows (account gone) are never visible to others
       and not public.is_blocked_between(viewer, e.user_id)
       and (
         e.visibility = 'public'

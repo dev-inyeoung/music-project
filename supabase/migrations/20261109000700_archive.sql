@@ -13,7 +13,10 @@ create type public.archive_item as (
   place_lng float8,
   comment text,
   visibility public.entry_visibility,
-  source_author_name text
+  source_author_name text,
+  source_entry_id uuid,
+  group_key text,
+  status public.entry_status
 );
 
 create function public.place_key(p_name text, p_lat float8, p_lng float8) returns text
@@ -38,7 +41,7 @@ begin
   return query
     select e.id, e.kind, s.id, s.title, s.artist, s.artwork_url,
            e.listened_at, e.place_name, e.place_lat, e.place_lng, e.comment,
-           e.visibility, sp.display_name
+           e.visibility, sp.display_name, e.source_entry_id, s.group_key, e.status
       from public.entries e
       join public.songs s on s.id = e.song_id
       left join public.entries se on se.id = e.source_entry_id
@@ -85,7 +88,7 @@ begin
   return query
     select e.id, e.kind, s.id, s.title, s.artist, s.artwork_url,
            e.listened_at, e.place_name, e.place_lat, e.place_lng, e.comment,
-           e.visibility, sp.display_name
+           e.visibility, sp.display_name, e.source_entry_id, s.group_key, e.status
       from public.entries e
       join public.songs s on s.id = e.song_id
       left join public.entries se on se.id = e.source_entry_id

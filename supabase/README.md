@@ -12,7 +12,7 @@
 ```sh
 supabase start        # 로컬 스택 기동
 supabase db reset     # 마이그레이션 + seed.sql 재적용
-supabase test db      # pgTAP 전체 (00~09)
+supabase test db      # pgTAP 전체 (00~10)
 supabase db lint      # 스키마 린트 (error 0이어야 함)
 deno test supabase/functions/notify-report/   # Edge Function 단위 테스트
 ```
@@ -29,7 +29,7 @@ supabase secrets set RESEND_API_KEY=... OPERATOR_EMAIL=... NOTIFY_REPORT_SECRET=
 # 선택: NOTIFY_FROM_EMAIL (기본값 onboarding@resend.dev)
 ```
 
-`notify-report`는 `config.toml`에서 `verify_jwt = false`이며, 요청 헤더의 공유 비밀(`NOTIFY_REPORT_SECRET`)로 인증한다.
+`notify-report`는 `config.toml`에서 `verify_jwt = false`이며, 요청 헤더 `Authorization: Bearer <NOTIFY_REPORT_SECRET>`의 공유 비밀로 인증한다.
 
 ### Edge Function 비밀
 
@@ -54,7 +54,9 @@ Vault 값이 없거나 호출이 실패해도 신고 자체는 정상 처리된�
 
 ## iOS 앱이 호출하는 RPC
 
-모두 `authenticated` 전용이며 인증 없으면 `not_authenticated`를 던진다. 테이블 직접 쓰기는 불가(RLS), 쓰기는 RPC로만.
+모두 `authenticated` 전용이다(`anon`은 `public` 스키마의 어떤 함수도 실행할 수 없음 — `10_grants` 테스트). 아래 RPC는 모두 `auth.uid()`가 없으면 `not_authenticated`를 던진다(`upsert_song` 포함). 테이블 직접 쓰기는 불가(RLS), 쓰기는 RPC로만.
+
+`upsert_song`의 `artwork_url`은 `null` 또는 `https://<host>.mzstatic.com/...`만 허용된다(CHECK 위반 시 `23514`).
 
 | RPC | 용도 |
 |---|---|
@@ -82,3 +84,7 @@ Vault 값이 없거나 호출이 실패해도 신고 자체는 정상 처리된�
 `raise exception`(P0001)의 메시지로 전달된다.
 
 `not_authenticated`, `handle_invalid`, `handle_taken`, `user_not_found`, `cannot_friend_self`, `cannot_block_self`, `entry_not_found`, `save_is_private`, `cannot_save_own`, `already_in_archive`, `already_posted`
+
+## Plan 2 참고
+
+- iOS 클라이언트는 곡 제목/아티스트/아트워크를 런타임에 MusicKit으로 렌더링하고, DB의 곡 메타데이터(`songs`)는 캐시로만 취급한다(먼저 등록한 사용자의 값이 남으므로).

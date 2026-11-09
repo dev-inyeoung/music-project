@@ -1,11 +1,12 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(21);
 
 select tests.create_user('alice') as alice \gset
 select tests.create_user('bob') as bob \gset
 select tests.create_user('carol') as carol \gset
 select tests.create_user('stranger') as stranger \gset
+select tests.create_user('dan') as dan \gset
 select tests.make_friends(:'alice', :'bob') \gset
 select tests.make_friends(:'alice', :'carol') \gset
 select tests.song('s1', 'ISRC-D1') as gk \gset
@@ -78,6 +79,37 @@ select ok((select (n->>'gone')::boolean and (n->>'anonymous')::boolean
 select tests.as_user(:'stranger') \gset
 select is((select count(*)::int from public.entries where id = :'a'::uuid), 0,
   'tombstone invisible to stranger via RLS');
+
+-- Account removed outside the RPC (operator deletes the auth user directly): the profile
+-- BEFORE DELETE trigger tombstones the content.
+select tests.as_user(:'dan') \gset
+select id as dpub from public.create_post('s1', now(), 'Dan Place', 1, 2, 'DAN-SECRET', 'public') \gset
+select tests.as_service() \gset
+delete from auth.users where id = :'dan'::uuid;
+select ok((select user_id is null and status = 'deleted' and comment is null and place_name is null
+                  and place_lat is null and place_lng is null and listened_at is null
+             from public.entries where id = :'dpub'::uuid),
+  'direct auth.users delete tombstones the public post');
+select tests.as_user(:'stranger') \gset
+select is((select count(*)::int from public.entries where id = :'dpub'::uuid), 0,
+  'directly-deleted user''s post invisible to stranger via RLS');
+
+-- Defense in depth: an orphaned row that somehow stayed active is not visible to non-owners.
+select tests.as_service() \gset
+insert into public.entries (id, user_id, song_id, visibility, kind, posted_at)
+values ('00000000-0000-0000-0000-0000000000f1', null, 's1', 'public', 'post', now());
+select tests.as_user(:'stranger') \gset
+select is((select count(*)::int from public.entries
+            where id = '00000000-0000-0000-0000-0000000000f1'), 0,
+  'orphaned active public row is not visible');
+
+select tests.as_service() \gset
+select ok(not has_function_privilege('authenticated', 'public.tombstone_profile_entries()', 'execute')
+          and not has_function_privilege('anon', 'public.tombstone_profile_entries()', 'execute'),
+  'tombstone trigger function not executable by app roles');
+select ok(exists (select 1 from pg_trigger t where t.tgrelid = 'public.profiles'::regclass
+                   and t.tgname = 'profiles_tombstone_entries' and not t.tgisinternal),
+  'profiles has the tombstone trigger');
 
 select * from finish();
 rollback;
