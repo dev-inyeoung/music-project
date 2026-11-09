@@ -55,7 +55,7 @@ begin
   if v_row.status = 'pending' and v_row.requested_by <> v_me then
     update public.friendships set status = 'accepted'
      where user_low = v_row.user_low and user_high = v_row.user_high;
-    return 'accepted';
+    return 'accepted'::public.friendship_status;
   end if;
   return v_row.status;
 end $$;
