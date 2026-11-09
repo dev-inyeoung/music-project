@@ -26,6 +26,7 @@ create or replace function tests.as_service() returns void
 language plpgsql as $$
 begin
   perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', '', true);
 end $$;
 
 create or replace function tests.make_friends(a uuid, b uuid) returns void
