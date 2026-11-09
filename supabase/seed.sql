@@ -9,10 +9,8 @@ begin
   insert into auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   values (v_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
           p_handle || '@test.local', '{}'::jsonb, '{}'::jsonb, now(), now());
-  -- profile row is created by a trigger added in a later migration
-  if to_regclass('public.profiles') is not null then
-    update public.profiles set handle = p_handle, display_name = p_handle where id = v_id;
-  end if;
+  -- profile row is created by the on_auth_user_created trigger
+  update public.profiles set handle = p_handle, display_name = p_handle where id = v_id;
   return v_id;
 end $$;
 
