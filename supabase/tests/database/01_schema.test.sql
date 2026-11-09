@@ -1,10 +1,10 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(8);
+select plan(10);
 
 select is(tests.song('1', 'KRA0001'), 'KRA0001', 'group_key uses isrc');
 select is(tests.song('2'), 'am:2', 'group_key falls back to am:id');
-select tests.song('3', 'KRA0001');
+select tests.song('3', 'KRA0001') as s3 \gset
 select is((select count(distinct group_key)::int from songs where id in ('1', '3')), 1,
   'same ISRC, different ids share group_key');
 
@@ -30,8 +30,18 @@ select throws_ok(
     values (%L, '1', 'friends', 'post', now(), 37.5)$f$, :'alice'),
   '23514', null, 'place_lat without place_lng violates check');
 
-select tests.as_user(:'alice'::uuid);
-select throws_ok($$select set_profile('민지', '민지')$$, '23514', null, 'test_handle_rejects_non_ascii');
+select upsert_song('9', null, 'Original', 'A', null) as s9 \gset
+select upsert_song('9', 'KRA0009', 'Vandal', 'B', null) as s9b \gset
+select is((select title || '/' || isrc from songs where id = '9'), 'Original/KRA0009',
+  'upsert_song keeps title, fills null isrc');
+
+select set_config('role', 'authenticated', true) as r \gset
+select set_config('request.jwt.claims', '{}', true) as c \gset
+select throws_ok($$select set_profile('abcdef', 'x')$$, 'P0001', 'not_authenticated', 'set_profile requires auth');
+select tests.as_service() as svc \gset
+
+select tests.as_user(:'alice'::uuid) as au \gset
+select throws_ok($$select set_profile('민지민지', '민지')$$, '23514', null, 'test_handle_rejects_non_ascii');
 select throws_ok(
   $$insert into entries (user_id, song_id, visibility, kind, posted_at)
     values (auth.uid(), '1', 'friends', 'post', now())$$,

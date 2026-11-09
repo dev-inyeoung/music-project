@@ -96,10 +96,19 @@ language plpgsql security definer set search_path = '' as $$
 declare
   v_row public.profiles;
 begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated';
+  end if;
+  if p_handle is null or trim(p_handle) = '' then
+    raise exception 'handle_invalid';
+  end if;
   update public.profiles
      set handle = lower(trim(p_handle)), display_name = p_display_name
    where id = auth.uid()
    returning * into v_row;
+  if not found then
+    raise exception 'not_authenticated';
+  end if;
   return v_row;
 exception when unique_violation then
   raise exception 'handle_taken';
@@ -115,9 +124,7 @@ begin
   values (p_id, p_isrc, p_title, p_artist, p_artwork_url)
   on conflict (id) do update
     set isrc = coalesce(public.songs.isrc, excluded.isrc),
-        title = excluded.title,
-        artist = excluded.artist,
-        artwork_url = coalesce(excluded.artwork_url, public.songs.artwork_url)
+        artwork_url = coalesce(public.songs.artwork_url, excluded.artwork_url)
   returning group_key into v_key;
   return v_key;
 end $$;
@@ -134,7 +141,7 @@ alter table public.friendships enable row level security;
 alter table public.blocks enable row level security;
 alter table public.reports enable row level security;
 
-revoke insert, update, delete on all tables in schema public from anon, authenticated;
+revoke insert, update, delete, truncate, references, trigger on all tables in schema public from anon, authenticated;
 
 create policy profiles_select_authenticated on public.profiles
   for select to authenticated using (true);
