@@ -1,8 +1,10 @@
-import { buildEmail, type ReportPayload } from "./handler.ts";
+import { buildEmail, isAuthorized, type ReportPayload } from "./handler.ts";
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
-  if (req.headers.get("Authorization") !== `Bearer ${Deno.env.get("NOTIFY_REPORT_SECRET")}`) {
+  const secret = Deno.env.get("NOTIFY_REPORT_SECRET");
+  if (!secret) return new Response("misconfigured", { status: 500 });
+  if (!isAuthorized(req.headers.get("Authorization"), secret)) {
     return new Response("unauthorized", { status: 401 });
   }
   let payload: ReportPayload;

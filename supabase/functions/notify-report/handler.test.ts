@@ -20,3 +20,17 @@ Deno.test("text includes entry_id, dashboard url and reason", () => {
   assert(text.includes(url));
   assert(text.includes("욕설"));
 });
+
+import { isAuthorized } from "./handler.ts";
+
+Deno.test("isAuthorized: missing secret is never authorized", () => {
+  assertEquals(isAuthorized("Bearer undefined", undefined), false);
+  assertEquals(isAuthorized(null, undefined), false);
+  assertEquals(isAuthorized("Bearer ", ""), false);
+});
+
+Deno.test("isAuthorized: correct and wrong headers", () => {
+  assertEquals(isAuthorized("Bearer s3", "s3"), true);
+  assertEquals(isAuthorized("Bearer nope", "s3"), false);
+  assertEquals(isAuthorized(null, "s3"), false);
+});

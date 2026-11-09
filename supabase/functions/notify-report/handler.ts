@@ -21,3 +21,8 @@ export function buildEmail(
   ].filter((l) => l !== "").join("\n");
   return { subject, text };
 }
+
+export function isAuthorized(header: string | null, secret: string | undefined): boolean {
+  if (!secret) return false;
+  return header === `Bearer ${secret}`;
+}
